@@ -1,7 +1,8 @@
 {application, inpevt,
  [
-  {description, ""},
-  {vsn, "1"},
+  {description, "Linux input event"},
+  {vsn, git},
+  {modules, ["@@MODULES@@"]},  
   {registered, []},
   {applications, [
                   kernel,

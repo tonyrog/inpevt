@@ -24,10 +24,19 @@
 #define IPEVT_DRV_MAJOR_VER 1
 #define IPEVT_DRV_MINOR_VER 0
 
+#if (ERL_DRV_EXTENDED_MAJOR_VERSION > 2) || ((ERL_DRV_EXTENDED_MAJOR_VERSION == 2) && (ERL_DRV_EXTENDED_MINOR_VERSION >= 1))
+#define DOUTPUT_TERM(thr, message, len) erl_drv_output_term((thr)->dport,(message),(len))
+#define DSEND_TERM(thr, to, message, len) erl_drv_send_term((thr)->dport,(to),(message),(len))
+
+#else
+#define DOUTPUT_TERM(thr, message, len) driver_output_term((thr)->port,(message),(len))
+#define DSEND_TERM(thr, to, message, len) driver_send_term((thr)->port,(to),(message),(len))
+#endif
+
 
 typedef struct {
-    ErlDrvPort mPort;
-    ErlDrvTermData mDport;
+    ErlDrvPort port;
+    ErlDrvTermData dport;
     int mDescriptor; // Opened mDevice
     char mDevice[256]; // /dev/input/...
 } IEContext;
@@ -811,8 +820,8 @@ static ErlDrvData inpevt_start(ErlDrvPort port, char *command)
 
     ctx = (IEContext*) driver_alloc(sizeof(IEContext));
     ctx->mDescriptor = -1;
-    ctx->mPort = port;
-    ctx->mDport = driver_mk_port(port);
+    ctx->port = port;
+    ctx->dport = driver_mk_port(port);
     ctx->mDevice[0] = 0;
 //    set_port_control_flags(port, PORT_CONTROL_FLAG_BINARY);
     set_port_control_flags(port, 0);
@@ -965,7 +974,7 @@ static ErlDrvSSizeT inpevt_control (ErlDrvData drv_data,
         if ((res = open_event_device(ctx)) != IEDRV_RES_OK)
             return port_ctl_return_val(res, 0, *rbuf);
 
-        driver_select(ctx->mPort, (ErlDrvEvent) ctx->mDescriptor, DO_READ, 1);
+        driver_select(ctx->port, (ErlDrvEvent) (long)ctx->mDescriptor, DO_READ, 1);
         return port_ctl_return_val(IEDRV_RES_OK, 0, *rbuf);
     }
 
@@ -973,7 +982,7 @@ static ErlDrvSSizeT inpevt_control (ErlDrvData drv_data,
     case IEDRV_CMD_CLOSE:
         // Remove from select set.
         if (ctx->mDescriptor != -1)
-            driver_select(ctx->mPort, (ErlDrvEvent) ctx->mDescriptor, DO_READ, 0);
+            driver_select(ctx->port, (ErlDrvEvent) (long)ctx->mDescriptor, DO_READ, 0);
 
         close(ctx->mDescriptor);
         ctx->mDescriptor = -1;
@@ -1011,7 +1020,7 @@ static void inpevt_ready_input(ErlDrvData drv_data, ErlDrvEvent event)
             dterm_init(&dt);
             dterm_tuple_begin(&dt, &ev_mark);
             dterm_atom(&dt, ie_input_event);
-            dterm_port(&dt, ctx->mDport);
+            dterm_port(&dt, ctx->dport);
             dterm_int(&dt, buf[i].time.tv_sec);
             dterm_int(&dt, buf[i].time.tv_usec);
             dterm_atom(&dt, *type_atoms[buf[i].type].atom);
@@ -1027,9 +1036,9 @@ static void inpevt_ready_input(ErlDrvData drv_data, ErlDrvEvent event)
 
             dterm_tuple_end(&dt, &ev_mark);
 
-            driver_output_term(ctx->mPort,
-                               dterm_data(&dt),
-                               dterm_used_size(&dt));
+            DOUTPUT_TERM(ctx,
+			 dterm_data(&dt),
+			 dterm_used_size(&dt));
 
             dterm_finish(&dt);
         }
@@ -1076,7 +1085,7 @@ static unsigned char send_device_info(IEContext* ctx, unsigned int reply_id)
         dterm_mark_t prop;
 
         dterm_atom(&dt, ie_device_info);
-        dterm_port(&dt, ctx->mDport);
+        dterm_port(&dt, ctx->dport);
         dterm_int(&dt, reply_id);
 
 
@@ -1101,7 +1110,7 @@ static unsigned char send_device_info(IEContext* ctx, unsigned int reply_id)
         }
     }
     dterm_tuple_end(&dt, &msg);
-    driver_output_term(ctx->mPort, dterm_data(&dt), dterm_used_size(&dt));
+    DOUTPUT_TERM(ctx, dterm_data(&dt), dterm_used_size(&dt));
     dterm_finish(&dt);
 
 

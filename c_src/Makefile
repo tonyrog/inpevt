@@ -1,11 +1,25 @@
-PRIVDIR := ../priv
+#@BEGIN-C_SRC-DEFAULT-RULES@
+ERL=$(shell readlink -f `which erl`)
+ERL_TOP=$(ERL:%/bin/erl=%)
+OS=$(shell uname -s)
+CFLAGS=-MMD -MP -MF .$<.d -I$(ERL_TOP)/usr/include
+#@END-C_SRC-DEFAULT-RULES@
 
-all : $(PRIVDIR)/inpevt_driver.so
+APP=inpevt
+CFLAGS+=-std=c99 -Wall -O3
+LDFLAGS+=-shared
 
-override CFLAGS += -fpic -shared
+OBJS = dterm.o inpevt_driver.o
+LIBS = 
 
-$(PRIVDIR)/inpevt_driver.so : inpevt_driver.o dterm.o
-	$(CC) -shared -fpic $(LDFLAGS) -o $@ $^
+all: ../priv/$(APP)_driver.so
 
-clean:
-	$(RM) -f $(PRIVDIR)/inpevt_driver.so inpevt_driver.o dterm.o
+../priv/$(APP)_driver.so: $(OBJS)
+	$(CC) $(LDFLAGS) $(OBJS) $(LIBS) -o ../priv/$(APP)_driver.so
+
+%.o:	%.c
+	$(CC) $(CFLAGS) -c -fPIC $<
+
+.%.d:	;
+
+-include .*.d

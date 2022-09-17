@@ -1,8 +1,11 @@
+#@BEGIN-DIR-DEFAULT-RULES@
 all:
-	X_COMP_OTP_ROOT=../../erl-arm-none-linux-gnueabi \
-	X_COMP_TOOLCHAIN_ROOT=/opt/arm-2007q1 \
-	X_COMP_TARGET_ARCH=arm-none-linux-gnueabi \
-	rebar -v3 compile
+	@if [ -d "src" -a -f "src/Makefile" ]; then (cd src && $(MAKE) all); fi
+	@if [ -d "c_src" -a -f "c_src/Makefile" ]; then (cd c_src && $(MAKE) all); fi
+	@if [ -d "test" -a -f "test/Makefile" ]; then (cd test && $(MAKE) all); fi
 
 clean:
-	rebar clean
+	@if [ -d "src" -a -f "src/Makefile" ]; then (cd src && $(MAKE) clean); fi
+	@if [ -d "c_src" -a -f "c_src/Makefile" ]; then (cd c_src && $(MAKE) clean); fi
+	@if [ -d "test" -a -f "test/Makefile" ]; then (cd test && $(MAKE) clean); fi
+#@END-DIR-DEFAULT-RULES@

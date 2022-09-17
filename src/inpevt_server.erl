@@ -20,7 +20,7 @@
 %% API
 -export([start_link/0]).
 
--include("inpevt.hrl").
+-include("../include/inpevt.hrl").
 
 
 %% gen_server callbacks
