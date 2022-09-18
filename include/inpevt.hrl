@@ -14,6 +14,8 @@
 %%% Created : 2013-10-03 Magnus Feuer
 %%%-------------------------------------------------------------------
 
+-ifndef(__INPEVT_HRL__).
+-define(__INPEVT_HRL__, true).
 
 %% Records used by the input event system: NEEDS WORK
 
@@ -78,3 +80,28 @@
           capabilities::[#cap_spec{}]
           }).
 
+-define(BUS_PCI,	16#01).
+-define(BUS_ISAPNP,	16#02).
+-define(BUS_USB,	16#03).
+-define(BUS_HIL,	16#04).
+-define(BUS_BLUETOOTH,	16#05).
+-define(BUS_VIRTUAL,	16#06).
+
+-define(BUS_ISA,	16#10).
+-define(BUS_I8042,	16#11).
+-define(BUS_XTKBD,	16#12).
+-define(BUS_RS232,	16#13).
+-define(BUS_GAMEPORT,	16#14).
+-define(BUS_PARPORT,	16#15).
+-define(BUS_AMIGA,	16#16).
+-define(BUS_ADB,	16#17).
+-define(BUS_I2C,	16#18).
+-define(BUS_HOST,	16#19).
+-define(BUS_GSC,	16#1A).
+-define(BUS_ATARI,	16#1B).
+-define(BUS_SPI,	16#1C).
+-define(BUS_RMI,	16#1D).
+-define(BUS_CEC,	16#1E).
+-define(BUS_INTEL_ISHTP,16#1F).
+
+-endif.
