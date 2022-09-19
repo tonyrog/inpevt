@@ -17,9 +17,6 @@
 %% proc devices
 -export([list_devices/0, match_devices/1]).
 -export([add_matched_devices/1]).
--export([add_event_devices/0]).
--export([add_bluetooth_devices/0]).
--export([add_named_device/1]).
 
 %% -define(dbg(F,A), ok).
 -define(dbg(F,A), io:format((F),(A))).
@@ -68,25 +65,17 @@ match_devices(Match) ->
 list_devices() ->
     inpevt_proc_bus:list_devices().
 
-add_event_devices() ->
-    add_matched_devices([device]).
-
-add_bluetooth_devices() ->
-    add_matched_devices([{bus,bluetooth}]).
-
-%% fixme regexp
-add_named_device(Name) ->
-    add_matched_devices([{name,Name}]).
-
+% return list of device names opened
 add_matched_devices(Match) ->
-    lists:foreach(
-      fun({_Name,#{ device := Filename }}) ->
-	      ?dbg("add device: ~s, file=~s\n", [_Name, Filename]),
+    lists:foldl(
+      fun({Name,#{ device := Filename }}, Acc) ->
+	      ?dbg("add device: ~s, file=~s\n", [Name, Filename]),
 	      case add_device(Filename) of
-		  {ok,_Dev} -> ok;
+		  {ok,_Dev} -> [Name|Acc];
 		  {error,_Error} ->
-		      ?dbg("error adding device ~p\n", [_Error])
+		      ?dbg("error adding device ~p\n", [_Error]),
+		      Acc
 	      end;
-	 (_) ->
-	      ok
-      end, match_devices(Match)).
+	 (_, Acc) ->
+	      Acc
+      end, [], match_devices(Match)).
