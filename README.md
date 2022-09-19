@@ -3,7 +3,7 @@ inpevt
 
 Linux input event port driver and erlang app
 
-# expoloring buses and devices
+# exploring buses and devices
 
 ## list current buses (from /proc/bus/input/devices)
 
@@ -35,7 +35,7 @@ name, device ...
 
 	> inpevt:get_devices().
 
-The return device list simliar to to list_devices but contain event
+The return device list similar to to list_devices but contain event
 capabilities and port information (for subscriptions).
 
 # Subscribe to events
