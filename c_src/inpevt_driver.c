@@ -33,6 +33,8 @@
 #define DSEND_TERM(thr, to, message, len) driver_send_term((thr)->port,(to),(message),(len))
 #endif
 
+//#define DBG(fmt...) fprintf(stdout, fmt)
+#define DBG(fmt...)
 
 typedef struct {
     ErlDrvPort port;
@@ -40,7 +42,6 @@ typedef struct {
     int mDescriptor; // Opened mDevice
     char mDevice[256]; // /dev/input/...
 } IEContext;
-
 
 static int inpevt_init (void);
 
@@ -132,15 +133,11 @@ static ErlDrvTermData ie_device_info;
 static ErlDrvTermData ie_unknown;
 static ErlDrvTermData ie_bus_type;
 
-
-
 struct AtomNameBitMap {
     unsigned int bit;
     char* name;
     ErlDrvTermData atom;
 };
-
-
 
 static struct AtomNameBitMap bus_cap_map[] = {
     { 0x00, "unknown", 0 },
@@ -184,26 +181,21 @@ static struct AtomNameBitMap type_cap_map[] = {
 static struct {
     ErlDrvTermData* atom;
     ErlDrvTermData** code; // References xxxx_atoms below.
-    int code_sz;                  // Number of elements in codes array.
-} type_atoms[EV_MAX + 1];
+    int code_sz;           // Number of elements in codes array.
+} type_atoms[EV_CNT];
 
 static struct AtomNameBitMap sync_cap_map[] = {
     { SYN_REPORT, "report", 0 },
     { SYN_CONFIG, "config", 0 },
-#if __i386__ && __linux__
     { SYN_MT_REPORT, "mt_report", 0 },
     { SYN_DROPPED, "dropped", 0 }
-#endif // __i386__ && __linux__
 };
-
-
-static ErlDrvTermData* sync_atoms[4]; // No TYPE_MAX
+static ErlDrvTermData* sync_atoms[SYN_CNT];
 
 static struct AtomNameBitMap sw_cap_map[] = {
     { SW_LID, "lid", 0 },
     { SW_TABLET_MODE, "tablet_mode", 0 },
     { SW_HEADPHONE_INSERT, "headphone_insert", 0 },
-#if __i386__ && __linux__
     { SW_RFKILL_ALL, "rfkill_all", 0 },
     { SW_RADIO, "radio", 0 },
     { SW_MICROPHONE_INSERT, "microphone_insert", 0 },
@@ -216,10 +208,11 @@ static struct AtomNameBitMap sw_cap_map[] = {
     { SW_FRONT_PROXIMITY, "front_proximity", 0 },
     { SW_ROTATE_LOCK, "rotate_lock", 0 },
     { SW_LINEIN_INSERT, "linein_insert", 0 },
-#endif // __i386__ && __linux__
+    { SW_MUTE_DEVICE, "mute_device", 0},
+    { SW_PEN_INSERTED, "pen_insserted", 0},
+    { SW_MACHINE_COVER, "cover_closed", 0}
 };
-
-static ErlDrvTermData* sw_atoms[SW_MAX + 1];
+static ErlDrvTermData* sw_atoms[SW_CNT];
 
 static struct AtomNameBitMap rel_cap_map[] = {
     { REL_X, "x", 0 },
@@ -231,10 +224,12 @@ static struct AtomNameBitMap rel_cap_map[] = {
     { REL_HWHEEL, "hwheel", 0 },
     { REL_DIAL, "dial", 0 },
     { REL_WHEEL, "wheel", 0 },
-    { REL_MISC, "misc", 0 }
+    { REL_MISC, "misc", 0 },
+    { REL_RESERVED, "reserved", 0 },
+    { REL_WHEEL_HI_RES, "wheel_hi_res", 0},
+    { REL_HWHEEL_HI_RES, "hwheel_hi_res", 0}
 };
-
-static ErlDrvTermData* rel_atoms[REL_MAX + 1];
+static ErlDrvTermData* rel_atoms[REL_CNT];
 
 static struct AtomNameBitMap abs_cap_map[] = {
     { ABS_X, "x", 0},
@@ -263,7 +258,6 @@ static struct AtomNameBitMap abs_cap_map[] = {
     { ABS_TOOL_WIDTH, "tool_width", 0},
     { ABS_VOLUME, "volume", 0},
     { ABS_MISC, "misc", 0},
-#if __i386__ && __linux__
     { ABS_MT_SLOT, "mt_slot", 0},
     { ABS_MT_TOUCH_MAJOR, "mt_touch_major", 0},
     { ABS_MT_TOUCH_MINOR, "mt_touch_minor", 0},
@@ -276,11 +270,11 @@ static struct AtomNameBitMap abs_cap_map[] = {
     { ABS_MT_BLOB_ID, "mt_blob_id", 0},
     { ABS_MT_TRACKING_ID, "mt_tracking_id", 0},
     { ABS_MT_PRESSURE, "mt_pressure", 0},
-    { ABS_MT_DISTANCE, "mt_distance", 0}
-#endif // __i386__ && __linux__
+    { ABS_MT_DISTANCE, "mt_distance", 0},
+    { ABS_MT_TOOL_X, "mt_tool_x", 0},
+    { ABS_MT_TOOL_Y, "mt_tool_y", 0}
 };
-
-static ErlDrvTermData* abs_atoms[ABS_MAX + 1];
+static ErlDrvTermData* abs_atoms[ABS_CNT];
 
 static struct AtomNameBitMap key_cap_map[] = {
     { KEY_RESERVED, "reserved", 0 },
@@ -695,7 +689,6 @@ static struct AtomNameBitMap key_cap_map[] = {
     { KEY_BRL_DOT6, "brl_dot6", 0 },
     { KEY_BRL_DOT7, "brl_dot7", 0 },
     { KEY_BRL_DOT8, "brl_dot8", 0 },
-#if __i386__ && __linux__
     { KEY_SCALE, "scale", 0 },
     { KEY_SCREENLOCK, "screenlock", 0 },
     { KEY_DASHBOARD, "dashboard", 0 },
@@ -788,9 +781,8 @@ static struct AtomNameBitMap key_cap_map[] = {
     { BTN_TRIGGER_HAPPY38, "trigger_happy38", 0 },
     { BTN_TRIGGER_HAPPY39, "trigger_happy39", 0 },
     { BTN_TRIGGER_HAPPY40, "trigger_happy40", 0 }
-#endif // __i386__ && __linux__
 };
-static ErlDrvTermData* key_atoms[KEY_MAX + 1];
+static ErlDrvTermData* key_atoms[KEY_CNT];
 
 
 DRIVER_INIT(inpevt_driver)
@@ -1012,26 +1004,41 @@ static void inpevt_ready_input(ErlDrvData drv_data, ErlDrvEvent event)
 
 
     while((rd_res = read(ctx->mDescriptor, (char*) buf, sizeof(buf))) > 0) {
-        int i = 0;
-        for (i = 0; i < rd_res / sizeof(buf[0]); ++i) {
+        int i;
+	size_t nev = rd_res / sizeof(buf[0]);
+
+	DBG("rd_res=%ld, nev=%ld, r=%ld\r\n",
+	    rd_res,nev,rd_res % sizeof(buf[0]));
+        for (i = 0; i < nev; ++i) {
             dterm_t dt;
             dterm_mark_t ev_mark;
 
+	    DBG("  %d: type=%d, code=%d, value=%d\r\n",
+		i, buf[i].type, buf[i].code, buf[i].value);
+	    if (buf[i].type > EV_MAX) {
+		DBG(" type > EV_MAX (%d)\r\n", buf[i].type);
+		continue;
+	    }
+	    if (type_atoms[buf[i].type].atom == NULL) {
+		DBG(" type not defined (%d)\r\n", buf[i].type);
+		continue;
+	    }
             dterm_init(&dt);
             dterm_tuple_begin(&dt, &ev_mark);
             dterm_atom(&dt, ie_input_event);
             dterm_port(&dt, ctx->dport);
             dterm_int(&dt, buf[i].time.tv_sec);
             dterm_int(&dt, buf[i].time.tv_usec);
+
             dterm_atom(&dt, *type_atoms[buf[i].type].atom);
 
-            if (type_atoms[buf[i].type].code)
-                dterm_atom(&dt, *type_atoms[buf[i].type].code[buf[i].code]);
-            else
+	    if ((type_atoms[buf[i].type].code == NULL) ||
+		(buf[i].code >= type_atoms[buf[i].type].code_sz))
                 dterm_atom(&dt, ie_unknown);
+	    else
+                dterm_atom(&dt, *type_atoms[buf[i].type].code[buf[i].code]);
 
             dterm_int(&dt, buf[i].code);
-
             dterm_int(&dt, buf[i].value);
 
             dterm_tuple_end(&dt, &ev_mark);
@@ -1039,7 +1046,7 @@ static void inpevt_ready_input(ErlDrvData drv_data, ErlDrvEvent event)
             DOUTPUT_TERM(ctx,
 			 dterm_data(&dt),
 			 dterm_used_size(&dt));
-
+	    DBG("  %d: sent\r\n", i);
             dterm_finish(&dt);
         }
     }
