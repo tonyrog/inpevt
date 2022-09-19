@@ -275,11 +275,11 @@ code_change(_OldVsn, State, _Extra) ->
 
 convert_return_value(Bits) ->
     if Bits =:= ?IEDRV_RES_OK -> ok;
-       Bits =:= ?IEDRV_RES_ILLEGAL_ARG -> illegal_arg;
-       Bits =:= ?IEDRV_RES_IO_ERROR -> io_error;
-       Bits =:= ?IEDRV_RES_NOT_OPEN -> not_open;
-       Bits =:= ?IEDRV_RES_COULD_NOT_OPEN -> not_open;
-       true -> unknown_error
+       Bits =:= ?IEDRV_RES_ILLEGAL_ARG -> {error,illegal_arg};
+       Bits =:= ?IEDRV_RES_IO_ERROR -> {error,io_error};
+       Bits =:= ?IEDRV_RES_NOT_OPEN -> {error,not_open};
+       Bits =:= ?IEDRV_RES_COULD_NOT_OPEN -> {error,not_open};
+       true -> {error,unknown}
     end.
 
 probe_event_file(Path, DeviceList) ->
@@ -300,8 +300,8 @@ probe_event_file(Path, DeviceList) ->
 		    #state { devices = [ NewDevice | DeviceList ] }
 		  }
             end;
-        Err ->
-            { { Err },  #state { devices = DeviceList }}
+        Error = {error,_} ->
+            { Error,  #state { devices = DeviceList }}
     end.
 
 make_desc(DrvDev,Port,Path) ->
@@ -326,7 +326,6 @@ add_subscriber(Pid, Device, DevList) when Device#device.subscribers =:= [] ->
     case activate_event_port(Device#device.port) of
         ok ->
             add_additional_subscribers(Pid, Device, DevList);
-
         {error, ErrCode } ->
             {error, ErrCode}
     end;
@@ -387,18 +386,11 @@ delete_terminated_subscriber(Pid, DeviceList) ->
 
 activate_event_port(Port) ->
     { Res, _ReplyID } = event_port_control(Port, ?IEDRV_CMD_OPEN, []),
-    case Res of
-        ok -> ok;
-        _ -> { error, Res }
-    end.
+    Res.
 
 deactivate_event_port(Port) ->
-
-    { Res, _ReplyID } = event_port_control(Port, ?IEDRV_CMD_CLOSE, []),
-    case Res of
-        ok -> ok;
-        _ -> { error, Res }
-    end.
+    {Res, _ReplyID } = event_port_control(Port, ?IEDRV_CMD_CLOSE, []),
+    Res.
 
 event_port_control(Port, Command, PortArg) ->
     ResList = port_control(Port, Command, PortArg),
@@ -465,7 +457,7 @@ add_new_device(Path, State) ->
 	    probe_event_file(Path, State#state.devices);
         %% Device already exists
         Dev ->
-            { { ok, Dev }, State }
+            { {ok, Dev}, State }
     end.
 
 delete_existing_device(Path, State) ->

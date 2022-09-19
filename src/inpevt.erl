@@ -82,7 +82,11 @@ add_matched_devices(Match) ->
     lists:foreach(
       fun({_Name,#{ device := Filename }}) ->
 	      ?dbg("add device: ~s, file=~s\n", [_Name, Filename]),
-	      add_device(Filename);
+	      case add_device(Filename) of
+		  {ok,_Dev} -> ok;
+		  {error,_Error} ->
+		      ?dbg("error adding device ~p\n", [_Error])
+	      end;
 	 (_) ->
 	      ok
       end, match_devices(Match)).
