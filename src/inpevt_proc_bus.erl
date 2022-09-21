@@ -15,7 +15,7 @@
 match_devices(Match) ->
     Ds = list_devices(),
     lists:filter(
-      fun({_Name,Desc}) ->
+      fun(Desc) ->
 	      match_attrs(Match,Desc)
       end, Ds).
 
@@ -65,9 +65,7 @@ collect_bus([<<_,$:,$\s,Data/binary>>|Lines], Desc, Acc) ->
 collect_bus([],Desc,Acc) ->
     lists:reverse([make_bus(Desc)|Acc]).
 
-make_bus(Desc=#{ name := Name}) ->
-    Desc1 = add_devices(Desc),
-    {Name, Desc1}.
+make_bus(Desc=#{ name := _Name}) -> add_devices(Desc).
 
 %% insert {device,"/dev/input/eventX"} where possible
 %% and update handlers as a list
@@ -80,7 +78,6 @@ add_devices(Desc=#{ handlers := Handlers}) ->
 	    Desc#{handlers => Hs,
 		  device=>filename:join("/dev/input",Event) }
     end.
-
 
 scan_string(<<$",Rest/binary>>) ->
     Size = byte_size(Rest),
@@ -133,6 +130,8 @@ add_kv(product,Value,Desc) ->
     Desc#{product => hex(Value) };
 add_kv(version, Value, Desc) ->
     Desc#{version => hex(Value) };
+add_kv(phys, Value, Desc) ->
+    Desc#{topology => Value};
 add_kv(Key, Value, Desc) when is_atom(Key) ->
     Desc#{Key => Value}.
 

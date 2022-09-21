@@ -12,10 +12,13 @@ LDFLAGS+=-shared
 OBJS = dterm.o inpevt_driver.o
 LIBS = 
 
-all: ../priv/$(APP)_driver.so
+all: ../priv/$(APP)_driver.so ../priv/uinput_test
 
 ../priv/$(APP)_driver.so: $(OBJS)
-	$(CC) $(LDFLAGS) $(OBJS) $(LIBS) -o ../priv/$(APP)_driver.so
+	$(CC) -o$@ $(LDFLAGS) $(OBJS) $(LIBS) 
+
+../priv/uinput_test: uinput_test.o
+	$(CC) -o$@ uinput_test.o 
 
 %.o:	%.c
 	$(CC) $(CFLAGS) -c -fPIC $<

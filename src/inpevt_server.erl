@@ -22,7 +22,6 @@
 
 -include("../include/inpevt.hrl").
 
-
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
@@ -30,30 +29,19 @@
 
 -define(SERVER, ?MODULE).
 
--record(subscriber, {
-          pid::pid(),
-          mref::reference()
-         }).
+-record(device,
+	{
+	 port  :: port(),
+	 fname :: string(),
+	 dsubs :: #{ reference() => pid() },
+	 desc  :: #{ atom() => term() }
+	}).
 
-
--record(device, {
-          port::port(),
-          fname::string(),
-          subscribers::[#subscriber{}],
-	  desc::#{ atom() => term() }
-          }).
-
-
-
--record(state, {
-          devices = [] ::[#device{}]
-         }).
-
-
--record(removed_event,
-        {
-          port
-        }).
+-record(state,
+	{
+	 devices = [] ::[#device{}],
+	 devmap  = #{} :: #{ reference() => port()}
+	}).
 
 -define (IEDRV_CMD_MASK, 16#0000000F).
 -define (IEDRV_CMD_OPEN, 16#00000001).
@@ -71,7 +59,6 @@
 -define (INPEVT_PREFIX, "event").
 -define (INPEVT_TOUCHSCREEN, "touchscreen").
 
-
 -type port_result():: ok|{error, illegal_arg | io_error | not_open}.
 -spec activate_event_port(port()) -> port_result().
 
@@ -81,10 +68,7 @@
                             { ok, [#device{}] } |
                             {error, illegal_arg | io_error | not_open }.
 
--spec delete_subscriber_from_port(pid(), port(), [#device{}]) -> [#device{}].
-
--spec delete_subscriber_from_device(pid(), #device{} ) -> #device{}.
--spec delete_terminated_subscriber(pid(), [#device{}]) -> [#device{}].
+-spec delete_subscription_from_device(reference(), #device{} ) -> #device{}.
 
 %%%===================================================================
 %%% API
@@ -119,10 +103,12 @@ init([]) ->
     process_flag(trap_exit, true),
     Res = erl_ddll:load(code:priv_dir(inpevt), ?INPEVT_DRIVER),
     case Res of
-	 ok -> {ok, #state{}};
-	{ _error, Error } -> { stop, Error };
-	_ -> { stop, unknown }
-
+	 ok -> 
+	    {ok, #state{}};
+	{ _error, Error } ->
+	    { stop, Error };
+	_ ->
+	    { stop, unknown }
     end.
 
 
@@ -140,62 +126,40 @@ init([]) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_call({ subscribe, Port, Pid }, _From, State) ->
-    DevList = State#state.devices,
-    case lists:keytake(Port, #device.port, DevList) of
-        { value, Device,  TempState } ->
-            case add_subscriber(Pid,
-                                Device,
-                                TempState) of
-                { ok, NewDevList } -> {
-                  reply,
-                  ok,
-                  #state {
-                    devices = NewDevList
-                   }
-                 };
-
-                { error, ErrCode } -> {
-                  reply,
-                  { error, ErrCode },
-                  State
-                 }
+handle_call({subscribe, Port, Pid}, _From, State) ->
+    case lists:keytake(Port, #device.port, State#state.devices) of
+        {value, Device, Ds1} ->
+            case add_subscriber(Pid, Device, Ds1) of
+                {ok, Ref, Ds2} ->
+		    DevMap = maps:put(Ref, Port, State#state.devmap),
+		    {reply, {ok,Ref}, State#state { devices=Ds2,devmap=DevMap}};
+                { error, ErrCode } -> 
+		    {reply, { error, ErrCode }, State }
             end;
-        false -> {
-          reply,
-          { error, not_found },
-          State
-         };
-
-        _ ->
-            { reply, not_found, State }
+        false -> 
+	    {reply,{ error, not_found }, State}
     end;
 
-handle_call({ unsubscribe, Port, Pid }, _From, State) ->
-    {
-      reply,
-      ok,
-      #state { devices = delete_subscriber_from_port(Pid, Port, State#state.devices) }
-    };
+handle_call({unsubscribe, Ref}, _From, State) ->
+    case maps:take(Ref, State#state.devmap) of
+	error ->
+	    %% just ignore old? subscriptions
+	    {reply, ok, State};
+	{Port,DevMap} ->
+	    Ds = delete_subscription_from_port(Port, Ref, State#state.devices),
+	    {reply, ok, State#state { devices = Ds, devmap = DevMap } }
+    end;
 
-handle_call({ get_devices }, _From, State) ->
-    get_devices(State);
+handle_call({get_devices, Match}, _From, State) ->
+    DevList = match_devices(Match, State#state.devices),
+    {reply, DevList, State};
 
-handle_call({ get_devices, CapKey }, _From, State) ->
-    get_devices(State, CapKey);
-
-handle_call({ get_devices, CapKey, CapSpec }, _From, State) ->
-    get_devices(State, CapKey, CapSpec);
-
-handle_call({ add_device, FileName }, _From, State) ->
+handle_call({add_device, FileName}, _From, State) ->
     { Res, NewState } = add_new_device(FileName, State),
     { reply, Res, NewState };
 
-handle_call({ delete_device, FileName }, _From, State) ->
-    { reply, ok, delete_existing_device(FileName, State) };
-
-handle_call({ i }, _From, State) ->
-    { reply, State, State };
+handle_call({delete_device, FileName }, _From, State) ->
+    { reply, ok, delete_device(FileName, State) };
 
 handle_call(stop, _From, State) ->
     { stop, normal, ok, State }.
@@ -223,25 +187,23 @@ handle_cast(_Msg, State) ->
 %%                                   {stop, Reason, State}
 %% @end
 %%--------------------------------------------------------------------
-handle_info(Info, State) ->
-    case Info of
-        #input_event {} ->
-            dispatch_event(Info, State),
-            {noreply, State};
-
-        %% Monitor trigger
-        { _, _, process, Pid, _ } ->
-            {
-          noreply,
-          #state {
-            devices = delete_terminated_subscriber(Pid, State#state.devices)
-           }
-        };
-
-        _X ->
-            {noreply, State}
-    end.
-
+handle_info(Event=#input_event {}, State) ->
+    dispatch_event(Event, State),
+    {noreply, State};
+handle_info({'DOWN', Ref, process, _Pid, _ }, State) ->
+    case maps:take(Ref, State#state.devmap) of
+	error ->
+	    {noreply, State};
+	{Port,DevMap} ->
+	    Ds = delete_subscription_from_port(Port, Ref, State#state.devices),
+	    {noreply, State#state { devices = Ds, devmap = DevMap }}
+    end;
+handle_info({'EXIT',Port,_Reason}, State) when is_port(Port) ->
+    %% Check that this was a port we closed?
+    {noreply, State};
+handle_info(_Info, State) ->
+    io:format("got info: ~p\n", [_Info]),
+    {noreply, State}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -272,7 +234,6 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
-
 convert_return_value(Bits) ->
     if Bits =:= ?IEDRV_RES_OK -> ok;
        Bits =:= ?IEDRV_RES_ILLEGAL_ARG -> {error,illegal_arg};
@@ -282,26 +243,24 @@ convert_return_value(Bits) ->
        true -> {error,unknown}
     end.
 
-probe_event_file(Path, DeviceList) ->
+probe_event_file(Path, State) ->
+    DeviceList = State#state.devices,
     Port = open_port({spawn, ?INPEVT_DRIVER}, []),
     { Res, ReplyID } = event_port_control(Port, ?IEDRV_CMD_PROBE, [Path]),
     case Res of
         ok ->
             receive
                 { device_info, _, ReplyID, DrvDev } ->
-		    NewDevice = #device {
-				   port=Port,
-				   fname=Path,
-				   subscribers = [],
-				   desc=make_desc(DrvDev,Port,Path)
-				  },
-		  {
-		    { ok, NewDevice },
-		    #state { devices = [ NewDevice | DeviceList ] }
-		  }
+		    Desc = make_desc(DrvDev,Port,Path),
+		    NewDevice = #device { port=Port,
+					  fname=Path,
+					  dsubs=#{},
+					  desc=Desc },
+		    Ds =  [ NewDevice | DeviceList ],
+		    {{ok,Desc},State#state { devices = Ds}}
             end;
         Error = {error,_} ->
-            { Error,  #state { devices = DeviceList }}
+            {Error, State#state { devices = DeviceList }}
     end.
 
 make_desc(DrvDev,Port,Path) ->
@@ -322,67 +281,46 @@ make_desc(DrvDev,Port,Path) ->
 %% First subscriber added to a device will activate the event port, thus starting the
 %% generation of devices.
 %%
-add_subscriber(Pid, Device, DevList) when Device#device.subscribers =:= [] ->
-    case activate_event_port(Device#device.port) of
-        ok ->
-            add_additional_subscribers(Pid, Device, DevList);
-        {error, ErrCode } ->
-            {error, ErrCode}
-    end;
-
-add_subscriber(Pid, Device, DevList) when Device#device.subscribers =/= [] ->
-    add_additional_subscribers(Pid, Device, DevList).
+add_subscriber(Pid, Device, DevList) ->
+    case maps:size(Device#device.dsubs) of
+	0 ->
+	    case activate_event_port(Device#device.port) of
+		ok ->
+		    add_additional_subscribers(Pid, Device, DevList);
+		Error ->
+		    Error
+	    end;
+	_ ->
+	    add_additional_subscribers(Pid, Device, DevList)
+    end.
 
 add_additional_subscribers(Pid, Device, DevList) ->
-    MonitorRef = erlang:monitor(process, Pid),
-    {
-      ok,
-      [ Device#device {
-          subscribers = [ #subscriber{ pid = Pid, mref = MonitorRef } |
-                          Device#device.subscribers]
-         } | DevList ]
-    }.
+    Ref = erlang:monitor(process, Pid),
+    DSubs = Device#device.dsubs,
+    Device1 = Device#device { dsubs = DSubs#{ Ref => Pid } },
+    {ok, Ref, [Device1 | DevList] }.
 
-delete_subscriber_from_port(Pid, Port, DeviceList) ->
-    case lists:keytake(Port, #device.port, DeviceList) of
-        {value,Device,TempDevList} ->
-            [ delete_subscriber_from_device(Pid, Device) | TempDevList ];
-        _ ->
-            DeviceList
+delete_subscription_from_port(Port, Ref, Ds) ->
+    case lists:keytake(Port, #device.port, Ds) of
+	{value,Device,Ds1} ->
+	    [delete_subscription_from_device(Ref, Device) | Ds1];
+        false ->
+            Ds
     end.
 
-delete_subscriber_from_device(Pid, Device) ->
-    %% Is this the last subscriber to be removed
-    case Device#device.subscribers of
-        [Subscriber] ->
-            %% Deactiveate the event port so that we don't get handle_info
-            %% called for this device.
-            demonitor(Subscriber#subscriber.mref),
-            deactivate_event_port(Device#device.port),
-            Device#device { subscribers = [] };
-
-        %% We have more than one subscriber.
-        _ ->
-            %% Delete the subscriber.
-            case lists:keytake(Pid, #subscriber.pid, Device#device.subscribers) of
-                %% Subscriber not found
-                false ->
-                    Device;
-
-                %% Subscriber deleted.
-                {
-                  value,
-                  Subscriber,
-                  Remainder
-                } ->
-                    demonitor(Subscriber#subscriber.mref),
-                    Device#device { subscribers = Remainder }
-            end
+delete_subscription_from_device(Ref, Device) ->
+    case maps:take(Ref, Device#device.dsubs) of
+	error -> Device;
+	{_Pid, DSubs} ->
+	    demonitor(Ref, [flush]),
+	    case maps:size(DSubs) of
+		0 ->
+		    ok = deactivate_event_port(Device#device.port);
+		_ ->
+		    ok
+	    end,
+	    Device#device { dsubs = DSubs }
     end.
-
-%% Delete a subscriber from all ports in State
-delete_terminated_subscriber(Pid, DeviceList) ->
-    [ delete_subscriber_from_device(Pid, Device) || Device <- DeviceList ].
 
 activate_event_port(Port) ->
     { Res, _ReplyID } = event_port_control(Port, ?IEDRV_CMD_OPEN, []),
@@ -399,82 +337,96 @@ event_port_control(Port, Command, PortArg) ->
     ReplyID = ResNative band 16#00FFFFFF,
     { Res, ReplyID }.
 
-make_devinfo_list(Ds) ->
-    [make_devinfo(D) || D <- Ds].
+match_devices(Match, Devices) ->
+    lists:foldl(
+      fun(Dev, Acc) ->
+	      Desc = Dev#device.desc,
+	      case match(Match, Desc) of
+		  true -> [Desc|Acc];
+		  false -> Acc
+	      end
+      end, [], Devices).
 
-make_devinfo(#device { desc=Desc }) ->
-    Name = maps:get(name, Desc),
-    {Name,Desc}.
+%% Match capabilities and attributes in dev list
+match([{capability,CapKey}|Match], Dev=#{ capabilities := Capabilities}) ->
+    case proplists:is_defined(CapKey, Capabilities) of
+	true -> match(Match, Dev);
+	false -> false
+    end;
+match([{capability,CapKey,CapSpec}|Match],
+      Dev=#{ capabilities := Capabilities}) ->
+    case proplists:get_value(CapKey, Capabilities) of
+	undefined -> false;
+	CapValue ->
+	    case proplists:is_defined(CapSpec, CapValue) of
+		true -> match(Match, Dev);
+		false -> false
+	    end
+    end;
+match([{Key,Pattern}|Match], Dev) ->
+    case maps:get(Key, Dev, undefined) of
+	Pattern -> match(Match, Dev);
+	Value when is_list(Value), is_list(Pattern) ->
+	    case re:run(Value, Pattern) of %% try regexp
+		nomatch -> false;
+		{match,_} -> match(Match, Dev)
+	    end;	
+	_ -> false
+    end;
+match([Key|Match], Dev) ->
+    case maps:is_key(Key, Dev) of
+	true -> match(Match, Dev);
+	false -> false
+    end;
+match([], _Dev) ->
+    true.
 
-get_devices(State) ->
-    {reply, {ok, make_devinfo_list(State#state.devices)}, State }.
-
-get_devices(State, CapKey) ->
-    Ds = make_devinfo_list(State#state.devices),
-    Ds1 =
-	lists:foldl(
-	  fun(D=#{ capabilities := Capabilities}, Acc) ->
-		  case proplists:is_defined(CapKey, Capabilities) of
-		      true -> [D|Acc];
-		      false -> Acc
-		  end
-	  end, [], Ds),
-    {reply, {ok, Ds1}, State}.
-
-get_devices(State, CapKey, CapSpec) ->
-    Ds = make_devinfo_list(State#state.devices),
-    Ds1 =
-	lists:foldl(
-	  fun(D=#{ capabilities := Capabilities}, Acc) ->
-		  case proplists:get_value(CapKey, Capabilities) of
-		      undefined -> Acc;
-		      Match ->
-			  case proplists:is_defined(CapSpec, Match) of
-			      true -> [D|Acc];
-			      false -> Acc
-			  end
-		  end
-	  end, [], Ds),
-    {reply, {ok, Ds1}, State}.
 
 dispatch_event(Event, State) ->
-    case lists:keyfind(Event#input_event.port,
-                       #device.port,
-                       State#state.devices) of
+    case lists:keyfind(Event#input_event.id, #device.port,
+		       State#state.devices) of
         false ->
             not_found;
         Device ->
-            lists:map(fun(Sub) -> Sub#subscriber.pid ! Event end,
-                      Device#device.subscribers),
+            maps:foreach(
+	      fun(Ref,Pid) ->
+		      Pid ! Event#input_event{id=Ref}
+	      end, Device#device.dsubs),
             found
     end.
 
 add_new_device(Path, State) ->
-    %% Dies the device already exist? If so just return.
     case lists:keyfind(Path, #device.fname, State#state.devices) of
-        %% Device does not exist, create.
         false ->
-	    probe_event_file(Path, State#state.devices);
-        %% Device already exists
+	    probe_event_file(Path, State);
         Dev ->
-            { {ok, Dev}, State }
+	    {{ok,Dev#device.desc},State}
     end.
 
-delete_existing_device(Path, State) ->
-    %% Locate the device
-    case lists:keytake(Path,
-                       #device.fname,
-                       State#state.devices) of
-
-        %% Device does not exist, nop.
+delete_device(Path, State) ->
+    case lists:keytake(Path,#device.fname,State#state.devices) of
         false ->
             State;
-
         %% We found the device. Close its port and remove it from state.
         {value, Device, NewDeviceList } ->
-            lists:map(fun(Sub) ->
-                              Sub#subscriber.pid ! #removed_event { port = Device#device.port } end,
-                      Device#device.subscribers),
+            maps:foreach(
+	      fun(Ref,Pid) ->
+		      demonitor(Ref, [flush]),
+		      Pid ! 
+			  #input_event { id = Ref,
+					 sec = 0,
+					 usec = 0,
+					 type = removed,
+					 code_sym = removed,
+					 code_num = 0,
+					 value = 0
+				       }
+	      end, Device#device.dsubs),
+	    DevMap = maps:fold(
+		       fun(Ref,_Pid,Map) ->
+			       maps:remove(Ref, Map)
+		       end, State#state.devmap, Device#device.dsubs),
+            deactivate_event_port(Device#device.port),
             port_close(Device#device.port),
-            State#state { devices = NewDeviceList }
+            State#state { devices = NewDeviceList, devmap=DevMap }
     end.

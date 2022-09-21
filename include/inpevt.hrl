@@ -21,13 +21,13 @@
 
 -record(input_event,
         {
-          port :: pid(), %% Port for the input event
-	  sec  :: integer(), %% Seconds since epoch for event
-	  usec :: integer(), %% usec siunce secont
-	  type :: { syn | abs | rel | absinfo | key }, %% Type of event 
-	  code_sym, %% symbol code FIXME! TIE INTO OTHER RECORDS
-	  code_num, %% Numeric symbol
-	  value %% Value of symbol
+	 id :: port()|reference(), %% Port/Reference for the input event
+	 sec  :: integer(), %% Seconds since epoch for event
+	 usec :: integer(), %% usec siunce secont
+	 type :: syn | abs | rel | absinfo | key | removed, %% Type of event 
+	 code_sym, %% symbol code FIXME! TIE INTO OTHER RECORDS
+	 code_num, %% Numeric symbol
+	 value     %% Value of symbol
         }).
 
 -record(syn, { element:: report | config | mt_report | mt_dropped }).

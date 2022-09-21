@@ -33,7 +33,7 @@
 #define DSEND_TERM(thr, to, message, len) driver_send_term((thr)->port,(to),(message),(len))
 #endif
 
-//#define DBG(fmt...) fprintf(stdout, fmt)
+//#define DBG(fmt...) fprintf(stderr, fmt)
 #define DBG(fmt...)
 
 typedef struct {
@@ -972,7 +972,7 @@ static ErlDrvSSizeT inpevt_control (ErlDrvData drv_data,
 
     // Are we closing?
     case IEDRV_CMD_CLOSE:
-        // Remove from select set.
+        // Remove from select set. FIXME need stop_selec callback!
         if (ctx->mDescriptor != -1)
             driver_select(ctx->port, (ErlDrvEvent) (long)ctx->mDescriptor, DO_READ, 0);
 
@@ -1066,20 +1066,24 @@ static unsigned char send_device_info(IEContext* ctx, unsigned int reply_id)
     struct input_id id;
 
     // Get device id.
-    if (ioctl(ctx->mDescriptor, EVIOCGID, &id) < 0)
-    {
+    if (ioctl(ctx->mDescriptor, EVIOCGID, &id) < 0) {
+	DBG("error reading ID %s\r\n", strerror(errno));
         return IEDRV_RES_IO_ERROR;
     }
 
     if ((len = ioctl(ctx->mDescriptor, EVIOCGNAME(sizeof(name) - 1), name)) < 0) {
+	DBG("error reading NAME %s\r\n", strerror(errno));
         return IEDRV_RES_IO_ERROR;
     }
     name[len] = 0;
 
     if ((len = ioctl(ctx->mDescriptor, EVIOCGPHYS(sizeof(topology) - 1), topology)) < 0) {
-        return IEDRV_RES_IO_ERROR;
+	DBG("error reading PHYS %s\r\n", strerror(errno));
+	topology[0] = 0;
+        // return IEDRV_RES_IO_ERROR;
     }
-    topology[len] = 0;
+    else
+	topology[len] = 0;
 
     if ((len = ioctl(ctx->mDescriptor, EVIOCGUNIQ(sizeof(uniq_id) - 1), uniq_id)) < 0)
         uniq_id[0] = 0;
