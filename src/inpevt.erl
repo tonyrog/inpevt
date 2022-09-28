@@ -15,7 +15,7 @@
 -export([diff_devices/1, diff_devices/2]).
 -export([subscribe_matched_devices/1]).
 -export([subscribe/0, subscribe/1, unsubscribe/1]).
--export([add_devices/1, delete_devices/1, delete_device/1]).
+-export([add_devices/1, add_device/1, delete_devices/1, delete_device/1]).
 -export([add_device_/1, delete_device_/1]).
 %% proc devices
 -export([list_devices/0, list_matched_devices/1]).
