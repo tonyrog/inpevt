@@ -20,7 +20,10 @@
 %% proc devices
 -export([list_devices/0, list_matched_devices/1]).
 -export([add_matched_devices/1]).
+%% test
+-export([monitor/1]).
 
+-include("../include/inpevt.hrl").
 
 %% -define(dbg(F,A), ok).
 -define(dbg(F,A), io:format((F),(A))).
@@ -197,7 +200,6 @@ delete_device(D=#{ device := Filename }) ->
 	    []
     end.
 
-
 -spec delete_device_(Filename::string()) -> ok.
 delete_device_(Filename) ->
     gen_server:call(?SERVER, {delete_device, Filename }).
@@ -226,3 +228,18 @@ add_matched_devices(Match) ->
 	 (_, Acc) ->
 	      Acc
       end, [], list_matched_devices(Match)).
+
+%% test
+
+monitor(Filename) ->
+    start(),
+    add_device(#{ device => Filename}),
+    [{Ref,_Dev}] = subscribe(),
+    monitor_loop(Ref).
+
+monitor_loop(Ref) ->
+    receive 
+	Ev = #input_event{} ->
+	    io:format("~p\n", [Ev]),
+	    monitor_loop(Ref)
+    end.
