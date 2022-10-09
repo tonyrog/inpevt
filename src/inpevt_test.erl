@@ -123,13 +123,17 @@ wait_udev_loop(Udev, Mon, Action, NAME, PRODUCT, Tmo) ->
 match_device(Dev, NAME, PRODUCT) ->
     Product = udev:device_get_property_value(Dev, "PRODUCT"),
     io:format("PRODUCT = ~p\n", [Product]),
-    case re:run(Product, PRODUCT) of
-	{match, _} -> 
-	    Name = udev:device_get_property_value(Dev, "NAME"),
-	    io:format("NAME = ~p\n", [Name]),
-	    case re:run(Name, NAME) of
-		{match, _} -> true;
+    if Product =:= undefined ->
+	    false;
+       true ->
+	    case re:run(Product, PRODUCT) of
+		{match, _} -> 
+		    Name = udev:device_get_property_value(Dev, "NAME"),
+		    io:format("NAME = ~p\n", [Name]),
+		    case re:run(Name, NAME) of
+			{match, _} -> true;
+			_ -> false
+		    end;
 		_ -> false
-	    end;
-	_ -> false
+	    end
     end.
