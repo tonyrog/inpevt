@@ -10,6 +10,9 @@
 #include <fcntl.h>
 #include <linux/uinput.h>
 
+// extern int usleep(useconds_t usec);
+
+
 int emit(int fd, int type, int code, int val)
 {
    struct input_event ie;
@@ -37,7 +40,17 @@ void setup_keyboard(int fd)
    ioctl(fd, UI_SET_KEYBIT, KEY_ESC);    
    ioctl(fd, UI_SET_KEYBIT, KEY_A);
    ioctl(fd, UI_SET_KEYBIT, KEY_B);
-   ioctl(fd, UI_SET_KEYBIT, KEY_C);
+   ioctl(fd, UI_SET_KEYBIT, KEY_LEFTCTRL);
+   ioctl(fd, UI_SET_KEYBIT, KEY_RIGHTCTRL);   
+   ioctl(fd, UI_SET_KEYBIT, KEY_LEFTSHIFT);
+   ioctl(fd, UI_SET_KEYBIT, KEY_RIGHTSHIFT);   
+   ioctl(fd, UI_SET_KEYBIT, KEY_C); // copy
+   ioctl(fd, UI_SET_KEYBIT, KEY_X); // cut
+   ioctl(fd, UI_SET_KEYBIT, KEY_V); // paste
+
+   ioctl(fd, UI_SET_KEYBIT, KEY_CUT);
+   ioctl(fd, UI_SET_KEYBIT, KEY_COPY);
+   ioctl(fd, UI_SET_KEYBIT, KEY_PASTE);
 
    memset(&usetup, 0, sizeof(usetup));
    usetup.id.bustype = BUS_USB;
@@ -49,25 +62,88 @@ void setup_keyboard(int fd)
    ioctl(fd, UI_DEV_CREATE);
 }
 
+void send_key_press(int fd, int key)
+{
+    emit(fd, EV_KEY, key, 1);
+    emit(fd, EV_SYN, SYN_REPORT, 0);    
+}
+ 
+void send_key_release(int fd, int key)
+{
+    emit(fd, EV_KEY, key, 0);
+    emit(fd, EV_SYN, SYN_REPORT, 0);    
+}
+
+void send_key(int fd, int ctrl, int shift, int key)
+{
+    if (ctrl) {
+	emit(fd, EV_KEY, KEY_LEFTCTRL, 1);
+    }
+    if (shift) {
+	emit(fd, EV_KEY, KEY_RIGHTSHIFT, 1);
+    }
+    emit(fd, EV_KEY, key, 1);
+    emit(fd, EV_SYN, SYN_REPORT, 0);
+    
+    emit(fd, EV_KEY, key, 0);
+    if (shift) {
+	emit(fd, EV_KEY, KEY_RIGHTSHIFT, 0);
+    }
+    if (ctrl) {
+	emit(fd, EV_KEY, KEY_LEFTCTRL, 0);
+    }
+    emit(fd, EV_SYN, SYN_REPORT, 0);
+}
+
 void send_keyboard_events(int fd, char* keys)
 {
     int c;
     while((c = *keys++)) {
-	int key;
 	switch(c) {
-	case 'a':   key = KEY_A; break;
-	case 'b':   key = KEY_B; break;
-	case 'c':   key = KEY_C; break;
-	case '\n':  key = KEY_ENTER; break;
-	case ' ':   key = KEY_SPACE; break;
-	default:    key = KEY_ESC; break;
+	case 'a': send_key(fd, 0, 0, KEY_A); break;
+	case 'A': send_key(fd, 0, 1, KEY_A); break;
+	case 'b': send_key(fd, 0, 0, KEY_B); break;
+	case 'B': send_key(fd, 0, 1, KEY_B); break;
+	case 'c': send_key(fd, 0, 0, KEY_C); break;	    
+	case 'C': send_key(fd, 0, 1, KEY_C); break;
+	case 'x': send_key(fd, 0, 0, KEY_X); break;
+	case 'X': send_key(fd, 0, 1, KEY_X); break;	    
+	case 'v': send_key(fd, 0, 0, KEY_V); break;
+	case 'V': send_key(fd, 0, 1, KEY_V); break;	    	    
+	case '\n': send_key(fd, 0, 0, KEY_ENTER); break;
+	case ' ': send_key(fd, 0, 0, KEY_SPACE); break;
+	default:  send_key(fd, 0, 0, KEY_ESC); break;
 	}
-	emit(fd, EV_KEY, key, 1);  // press
-	emit(fd, EV_SYN, SYN_REPORT, 0);
-	emit(fd, EV_KEY, key, 0);  // release
-	emit(fd, EV_SYN, SYN_REPORT, 0);
     }
 }
+
+void send_keyboard_cut(int fd, int style)
+{
+    switch(style) {
+    case 0: send_key(fd, 1, 0, KEY_X); break;
+    case 1: send_key(fd, 1, 1, KEY_X); break;
+    case 2: send_key(fd, 0, 0, KEY_CUT); break;
+    }
+}
+
+void send_keyboard_copy(int fd, int style)
+{
+    switch(style) {
+    case 0: send_key(fd, 1, 0, KEY_C); break;
+    case 1: send_key(fd, 1, 1, KEY_C); break;
+    case 2: send_key(fd, 0, 0, KEY_COPY); break;
+    }
+}
+
+void send_keyboard_paste(int fd, int style)
+{
+    switch(style) {
+    case 0: send_key(fd, 1, 0, KEY_V); break;
+    case 1: send_key(fd, 1, 1, KEY_V); break;
+    case 2: send_key(fd, 0, 0, KEY_PASTE); break;
+    }    
+}
+
 
 void setup_mouse(int fd)
 {
@@ -105,6 +181,9 @@ int main(int argc, char** argv)
 {
     int fd;
 
+    printf("sizeof(struct input_event) = %ld\n",
+	   sizeof(struct input_event));
+
     if ((fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK)) < 0) {
 	fprintf(stderr, "unable to open /dev/uinput: %s\n", strerror(errno));
 	exit(1);
@@ -113,8 +192,23 @@ int main(int argc, char** argv)
     if (strcmp(argv[1], "keyboard") == 0) {
 	setup_keyboard(fd);
 	sleep(2);  // wait for udev/application etc ...
-	send_keyboard_events(fd, "a b c\n");
+	send_keyboard_events(fd, "a B c");
     }
+    else if (strcmp(argv[1], "cut") == 0) {
+	setup_keyboard(fd);
+	sleep(2);  // wait for udev/application etc ...
+	send_keyboard_cut(fd, 1);
+    }
+    else if (strcmp(argv[1], "copy") == 0) {
+	setup_keyboard(fd);
+	sleep(2);  // wait for udev/application etc ...
+	send_keyboard_copy(fd, 1);
+    }
+    else if (strcmp(argv[1], "paste") == 0) {
+	setup_keyboard(fd);
+	sleep(2);  // wait for udev/application etc ...
+	send_keyboard_paste(fd, 1);
+    }    
     else if (strcmp(argv[1], "mouse") == 0) {
 	int vx[] = {5,5,5,5,10,10,10,10,10,-5,-5,-5,-5,-5,-10,-10,-10,-10};
 	int vy[] = {-5,-5,-5,-5,-10,-10,-10,-10,-10,5,5,5,5,5,10,10,10,10};

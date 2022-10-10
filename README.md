@@ -29,7 +29,7 @@ name, device ...
 	
 ## add one device
 
-	> inpevt:add_device("/dev/input/event5").
+	> inpevt:add_device(#{ device=>"/dev/input/event5"}).
 
 ## View loaded devices
 
