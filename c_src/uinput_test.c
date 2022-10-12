@@ -51,12 +51,13 @@ void setup_keyboard(int fd)
    ioctl(fd, UI_SET_KEYBIT, KEY_CUT);
    ioctl(fd, UI_SET_KEYBIT, KEY_COPY);
    ioctl(fd, UI_SET_KEYBIT, KEY_PASTE);
+   ioctl(fd, UI_SET_KEYBIT, KEY_PLAYCD);
 
    memset(&usetup, 0, sizeof(usetup));
    usetup.id.bustype = BUS_USB;
    usetup.id.vendor  = 0xFEED; /* sample vendor */
    usetup.id.product = 0x1111; /* sample product */
-   strcpy(usetup.name, "Test Keyboard");
+   strcpy(usetup.name, "UInput Keyboard");
 
    ioctl(fd, UI_DEV_SETUP, &usetup);
    ioctl(fd, UI_DEV_CREATE);
@@ -144,6 +145,11 @@ void send_keyboard_paste(int fd, int style)
     }    
 }
 
+void send_playcd(int fd)
+{
+    send_key(fd, 0, 0, KEY_PLAYCD);
+}
+
 
 void setup_mouse(int fd)
 {
@@ -208,7 +214,13 @@ int main(int argc, char** argv)
 	setup_keyboard(fd);
 	sleep(2);  // wait for udev/application etc ...
 	send_keyboard_paste(fd, 1);
-    }    
+    }
+    else if (strcmp(argv[1], "playcd") == 0) {
+	setup_keyboard(fd);
+	printf("delay 5 seconds...\n");
+	sleep(5);  // wait for udev/application etc ...
+	send_playcd(fd);
+    }        
     else if (strcmp(argv[1], "mouse") == 0) {
 	int vx[] = {5,5,5,5,10,10,10,10,10,-5,-5,-5,-5,-5,-10,-10,-10,-10};
 	int vy[] = {-5,-5,-5,-5,-10,-10,-10,-10,-10,5,5,5,5,5,10,10,10,10};
