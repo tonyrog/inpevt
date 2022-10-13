@@ -16,20 +16,12 @@
 %% wait for keyboard open and print events
 keyboard() ->
     inpevt:start(),
-    ok = wait_udev("UInput Keyboard", "feed/1111", infinity),
-    %% wait for /dev/input to be created (should wait for devnode!)
-    timer:sleep(1000),
-    [Dev0] = inpevt:list_matched_devices([{name, "UInput Keyboard"}]),
-    io:format("found matched device ~p\n", [Dev0]),
-    [Dev1] = inpevt:add_matched_devices([{name, "UInput Keyboard"}]),
-    io:format("added matched device ~p\n", [Dev1]),
-    [{Ref,_iDev}] = inpevt:subscribe(),
-    io:format("subscribed ~p\n", [Ref]),
-    Res = wait_events(Ref, infinity, []),
-    inpevt:unsubscribe(Ref),
-    inpevt:delete_device(Dev1),
-    Res.
-    
+    udev_monitor:start(
+      [{subsystem, "input"},
+       {tag, "power-switch"},
+       {name, "UInput Keyboard"}
+      ],
+      fun add_remove_inpevt/4).
 
 %% using udev to detect when new keyboard/muse devnodes are created
 test_keyboard() -> test_keyboard(4000).
@@ -43,19 +35,13 @@ test_keyboard(Tmo) ->
 		  io:format("execute: ~p\n", [Cmd]),
 		  os:cmd(Cmd)
 	  end),
-    ok = wait_udev("UInput Keyboard", "feed/1111"),
-    %% wait for /dev/input to be created (should wait for devnode!)
-    timer:sleep(1000),
-    [Dev0] = inpevt:list_matched_devices([{name, "UInput Keyboard"}]),
-    io:format("found matched device ~p\n", [Dev0]),
-    [Dev1] = inpevt:add_matched_devices([{name, "UInput Keyboard"}]),
-    io:format("added matched device ~p\n", [Dev1]),
-    [{Ref,_iDev}] = inpevt:subscribe(),
-    io:format("subscribed ~p\n", [Ref]),
-    Res = wait_events(Ref, Tmo, []),
-    inpevt:unsubscribe(Ref),
-    inpevt:delete_device(Dev1),
-    Res.
+    udev_monitor:start(
+      [{subsystem, "input"},
+       {tag, "power-switch"},
+       {name, "UInput Keyboard"},
+       {timeout, Tmo}
+      ],
+      fun add_remove_inpevt/4).
 
 test_mouse() -> test_mouse(4000).
 test_mouse(Tmo) ->
@@ -68,93 +54,56 @@ test_mouse(Tmo) ->
 		  io:format("execute: ~p\n", [Cmd]),
 		  os:cmd(Cmd)
 	  end),
-    ok = wait_udev("UInput Mouse", "feed/2222"),
-    %% wait for /dev/input to be created (should wait for devnode!)
-    timer:sleep(1000),
-    [Dev0] = inpevt:list_matched_devices([{name, "UInput Mouse"}]),
-    io:format("found matched device ~p\n", [Dev0]),
-    [Dev1] = inpevt:add_matched_devices([{name, "UInput Mouse"}]),
-    io:format("added matched device ~p\n", [Dev1]),
-    [{Ref,_iDev}] = inpevt:subscribe(),
-    io:format("subscribed ~p\n", [Ref]),
-    Res = wait_events(Ref, Tmo, []),
-    inpevt:unsubscribe(Ref),
-    inpevt:delete_device(Dev1),
-    Res.
+    udev_monitor:start(
+      [{subsystem, "input"},
+       {name, "UInput Mouse"},
+       {timeout, Tmo}
+      ],
+      fun add_remove_inpevt/4).
 
-wait_events(Ref, Tmo, Acc) ->
-    receive
-	#input_event{id=Ref, type=syn,code_sym=report} ->
-	    case Acc of
-		[{key,enter,_,0}] -> lists:reverse(Acc);
-		_ -> wait_events(Ref,Tmo,Acc)
-	    end;
-	#input_event{id=Ref, type=Type,code_sym=Sym,code_num=Num,value=Value} ->
-	    wait_events(Ref, Tmo, [{Type,Sym,Num,Value}|Acc]);
-	Other ->
-	    io:format("GOT ~p\n", [Other]),
-	    wait_events(Ref, Tmo, Acc)
-    after Tmo ->
-	    lists:reverse(Acc)
-    end.
 
-wait_udev(NAME, PRODUCT) ->
-    wait_udev(NAME, PRODUCT, 5000).
-wait_udev(NAME, PRODUCT, Tmo) ->
-    Udev = udev:new(),
-    Mon = udev:monitor_new_from_netlink(Udev, udev),
-    %% add match tags...
-    ok = udev:monitor_enable_receiving(Mon),
-    wait_udev_loop(Udev, Mon, "add", NAME, PRODUCT, Tmo).
-
-wait_udev_loop(Udev, Mon, Action, NAME, PRODUCT, Tmo) ->
-    Ref = erlang:make_ref(),
-    case udev:select(Mon, Ref) of    
-	select ->
-	    receive
-		{select, Mon, Ref, ready_input} ->
-		    case udev:monitor_receive_device(Mon) of
-			undefined ->
-			    wait_udev_loop(Udev,Mon,Action,NAME,PRODUCT,Tmo);
-			Dev ->
-			    case udev:device_get_action(Dev) of
-				Action ->
-				    case match_device(Dev, NAME, PRODUCT) of
-					true ->
-					    ok;
-					false ->
-					    wait_udev_loop(Udev,Mon,Action,
-							   NAME,PRODUCT,Tmo)
-				    end;
-				OtherAction ->
-				    io:format("action=~p\n", [OtherAction]),
-				    wait_udev_loop(Udev,Mon,Action,
-						   NAME,PRODUCT,Tmo)
-			    end
+add_remove_inpevt("add", Info, _Dev, State) ->
+    case proplists:get_value(devnode, Info, undefined) of
+	undefined -> State;
+	DevNode when is_list(DevNode) ->
+	    case inpevt:add_device(#{device => DevNode}) of
+		[] ->
+		    io:format("unable to open ~p\n", [DevNode]),
+		    State;
+		[Added] ->
+		    case inpevt:subscribe(Added) of
+			{_Ref,_DevN} ->
+			    State1 = start_timer(State),
+			    io:format("devnode => ~p\n", [_DevN]),
+			    State1#{ DevNode => Added };
+			Res ->
+			    io:format("error: ~p\n", [Res]),
+			    State
 		    end
-	    after Tmo ->
-		    timeout
-	    end;
-	Error ->
-	    Error
-    end.
-
-%% match property NAME and PRODUCT in udev
-
-match_device(Dev, NAME, PRODUCT) ->
-    Product = udev:device_get_property_value(Dev, "PRODUCT"),
-    io:format("PRODUCT = ~p\n", [Product]),
-    if Product =:= undefined ->
-	    false;
-       true ->
-	    case re:run(Product, PRODUCT) of
-		{match, _} -> 
-		    Name = udev:device_get_property_value(Dev, "NAME"),
-		    io:format("NAME = ~p\n", [Name]),
-		    case re:run(Name, NAME) of
-			{match, _} -> true;
-			_ -> false
-		    end;
-		_ -> false
 	    end
+    end;
+add_remove_inpevt("remove", Info, _Dev, State) ->
+    DevNode = proplists:get_value(devnode, Info, ""),
+    case maps:take(DevNode, State) of
+	error -> State;
+	{D, State1} ->
+	    inpevt:delete_device(D),
+	    State1
+    end;
+add_remove_inpevt("event", _Info, Event, State) ->
+    io:format("event: ~p\n", [Event]),
+    case Event of
+	stop -> {stop, Event};
+	_ -> State
     end.
+
+
+start_timer(State=#{ opts := Opts }) ->
+    case proplists:get_value(timeout,Opts,infinity) of
+	infinity -> State;
+	Tmo ->
+	    io:format("start timer ~w ms\n", [Tmo]),
+	    TRef = erlang:send_after(Tmo, self(), stop),
+	    State#{ timer => TRef }
+    end.
+
