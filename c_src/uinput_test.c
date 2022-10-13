@@ -167,7 +167,7 @@ void setup_mouse(int fd)
     usetup.id.bustype = BUS_USB;
     usetup.id.vendor  = 0xFEED; /* sample vendor */
     usetup.id.product = 0x2222; /* sample product */
-    strcpy(usetup.name, "Test Mouse");
+    strcpy(usetup.name, "UInput Mouse");
 
     ioctl(fd, UI_DEV_SETUP, &usetup);
     ioctl(fd, UI_DEV_CREATE);
