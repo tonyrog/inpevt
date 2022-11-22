@@ -67,7 +67,7 @@
 -type devmatch() :: 
 	{capability,CapKey::atom()} |
 	{capability,CapKey::atom(),CapSpec::atom()} |
-	{Key::atom(), Value::term()|Pattern::string()} |
+	{Key::atom(), Value::term() | Pattern::string()} |
 	Key::atom().
 
 start() ->
