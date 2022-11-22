@@ -25,4 +25,8 @@ all: ../priv/$(APP)_driver.so ../priv/uinput_test
 
 .%.d:	;
 
+clean:
+	rm -f $(OBJS) uinput_test.o .*.d
+	rm -f ../priv/$(APP)_driver.so ../priv/uinput_test
+
 -include .*.d
